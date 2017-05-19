@@ -39,9 +39,7 @@ class HttpCoder implements AutoCloseable {
     private HttpClientContext context = HttpClientContext.create();
     private String cookiePath = "/home/smart/working/cookies.ser";
     private String handle = "";
-
     private boolean logged;
-
     private UserInfo self;
 
     HttpCoder() throws IOException {
@@ -65,6 +63,14 @@ class HttpCoder implements AutoCloseable {
             self = UserInfo.anonymous();
         }
         saveCookies();
+    }
+
+    String getHandle() {
+        return handle;
+    }
+
+    void setHandle(String handle) {
+        this.handle = handle;
     }
 
     private void setCookiePath(String cookiePath) {
@@ -114,15 +120,10 @@ class HttpCoder implements AutoCloseable {
                 .build();
         CloseableHttpResponse response = httpClient.execute(
                 new HttpGet("http://codeforces.com/"), context);
-        System.out.println("login get: " + response.getStatusLine());
         assert response.getStatusLine().getStatusCode() == 200;
         String html = EntityUtils.toString(response.getEntity());
         EntityUtils.consume(response.getEntity());
-        Matcher matcher = csrfPattern.matcher(html);
-        String csrf = "";
-        if (matcher.find()) {
-            System.out.println(csrf = matcher.group(1));
-        }
+        String csrf = findCsrf(html);
         assert !csrf.equals("");
         HttpPost httpPost = new HttpPost("http://codeforces.com/enter");
         List<NameValuePair> nameValuePairs = new ArrayList<>();
@@ -137,10 +138,37 @@ class HttpCoder implements AutoCloseable {
         logged = true;
     }
 
-    /* TODO: logout method. */
-    void logout() {
-        throw new NotImplementedException();
+    void submitSource(String problem, String source) throws IOException {
+        if (!logged) {
+            throw new NotImplementedException();
+        }
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setDefaultRequestConfig(requestConfig)
+                .setDefaultCookieStore(cookieStore)
+                .build();
+        CloseableHttpResponse response = httpClient.execute(
+                new HttpGet("http://codeforces.com/problemset/submit"), context);
+        assert response.getStatusLine().getStatusCode() == 200;
+        String html = EntityUtils.toString(response.getEntity());
+        EntityUtils.consume(response.getEntity());
+        String csrf = findCsrf(html);
+        HttpPost httpPost = new HttpPost(
+                "http://codeforces.com/problemset/submit?csrf_token=" + csrf);
+        List<NameValuePair> nameValuePairs = new ArrayList<>();
+        nameValuePairs.add(new BasicNameValuePair("csrf_token", csrf));
+        nameValuePairs.add(new BasicNameValuePair(
+                "action", "submitSolutionFormSubmitted"));
+        nameValuePairs.add(new BasicNameValuePair("submittedProblemCode", problem));
+        nameValuePairs.add(new BasicNameValuePair("programTypeId", "31"));
+        nameValuePairs.add(new BasicNameValuePair("source", source));
+        httpPost.setEntity(new UrlEncodedFormEntity(nameValuePairs, Consts.UTF_8));
+        response = httpClient.execute(httpPost, context);
+        System.out.println("submit: " + response.getStatusLine());
+        assert response.getStatusLine().getStatusCode() == 302;
     }
+
+    /* TODO: logout method. */
+    //void logout() {throw new NotImplementedException();}
 
     @Override
     public void close() throws Exception {
@@ -149,5 +177,10 @@ class HttpCoder implements AutoCloseable {
 
     boolean isLogged() {
         return logged;
+    }
+
+    private String findCsrf(String html) {
+        Matcher matcher = csrfPattern.matcher(html);
+        return matcher.find() ? matcher.group(1) : "";
     }
 }
